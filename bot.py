@@ -86,8 +86,19 @@ class DBWrapper:
 
 def db():
     if DATABASE_URL:
-        import psycopg2
-        conn = psycopg2.connect(DATABASE_URL)
+        import pg8000
+        import ssl
+        from urllib.parse import urlparse
+        url = urlparse(DATABASE_URL)
+        ssl_ctx = ssl.create_default_context()
+        conn = pg8000.connect(
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port or 5432,
+            database=url.path[1:],
+            ssl_context=ssl_ctx
+        )
         return DBWrapper(conn, is_pg=True)
     else:
         conn = sqlite3.connect(DB_PATH)
