@@ -39,19 +39,12 @@ PLANS = {
 
 PROVIDERS = {
     "9proxy": {
-        "name":  "9Proxy",
-        "icon":  "🌐",
-        "url":   "https://9proxy.com/pricing",
-        "plans": [
-            {"name": "Starter",  "price": 1.99,  "data": "1 GB",   "note": "~100K requests"},
-            {"name": "Standard", "price": 8.95,  "data": "5 GB",   "note": "~500K requests"},
-            {"name": "Pro",      "price": 15.60, "data": "20 GB",  "note": "~2M requests"},
-        ],
+        "name": "9Proxy",
+        "icon": "🌐",
     },
-    "clipproxy": {
-        "name":        "Clip Proxy",
-        "icon":        "📎",
-        "out_of_stock": True,
+    "soax": {
+        "name": "Soax",
+        "icon": "🔷",
     },
 }
 
@@ -343,18 +336,17 @@ def plans_menu():
 
 def provider_select_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌐  9Proxy",     callback_data="provider_9proxy")],
-        [InlineKeyboardButton("📎  Clip Proxy", callback_data="provider_clipproxy")],
-        [InlineKeyboardButton("⬅️  Back",       callback_data="back_main")],
+        [InlineKeyboardButton("🌐  9Proxy", callback_data="provider_9proxy")],
+        [InlineKeyboardButton("🔷  Soax",   callback_data="provider_soax")],
+        [InlineKeyboardButton("⬅️  Back",   callback_data="back_main")],
     ])
 
 def provider_plans_menu(provider_key: str):
-    p = PROVIDERS[provider_key]
     rows = []
-    for plan in p["plans"]:
+    for key, p in PLANS.items():
         rows.append([InlineKeyboardButton(
-            f"{plan['name']}  —  ${plan['price']}  ({plan['data']})",
-            url=p["url"]
+            f"{p['name']}  —  ${p['price']}/mo  ({p['count']} proxies)",
+            callback_data=f"plan_{key}"
         )])
     rows.append([InlineKeyboardButton("⬅️  Back", callback_data="buy")])
     return InlineKeyboardMarkup(rows)
@@ -417,24 +409,10 @@ async def cb_provider(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     provider_key = q.data.split("_", 1)[1]
     p = PROVIDERS[provider_key]
-    if p.get("out_of_stock"):
-        await q.message.edit_text(
-            f"{p['icon']} *{p['name']}*\n\n"
-            "⚠️ *Out of Stock*\n\n"
-            "This provider is currently unavailable. Please check back later or choose another provider.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️  Back", callback_data="buy")]
-            ])
-        )
-        return
-    lines = [f"{p['icon']} *{p['name']} — Pricing Plans*\n"]
-    for plan in p["plans"]:
-        lines.append(
-            f"• *{plan['name']}*  —  ${plan['price']}  ({plan['data']})\n"
-            f"  _{plan['note']}_"
-        )
-    lines.append("\nTap a plan below to purchase on the provider's website.")
+    lines = [f"{p['icon']} *{p['name']} — Choose a Plan*\n"]
+    for key, plan in PLANS.items():
+        lines.append(f"• *{plan['name']}*  —  ${plan['price']}/mo  ({plan['count']} proxies, {plan['days']} days)")
+    lines.append("\nSelect a plan below to continue:")
     await q.message.edit_text(
         "\n".join(lines),
         parse_mode="Markdown",
