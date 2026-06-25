@@ -282,31 +282,31 @@ def build_receipt(user, plan_key: str, proxies: list, expiry: str, method: str) 
     )
 
 # ── NOWPAYMENTS ───────────────────────────────────────────────────────────────
-async def create_nowpay_invoice(user_id: int, plan_key: str, pay_currency: str = "btc") -> dict:
+async def create_nowpay_payment(user_id: int, plan_key: str, pay_currency: str = "btc") -> dict:
     plan    = PLANS[plan_key]
-    ipn_url = f"{WEBHOOK_BASE_URL}/nowpay-ipn" if WEBHOOK_BASE_URL else ""
     payload = {
         "price_amount":      plan["price"],
         "price_currency":    "usd",
         "pay_currency":      pay_currency,
         "order_id":          f"{user_id}_{plan_key}_{int(datetime.now().timestamp())}",
         "order_description": f"{plan['name']} Proxy Plan — {plan['count']} proxies",
-        "ipn_callback_url":  ipn_url,
     }
+    if WEBHOOK_BASE_URL:
+        payload["ipn_callback_url"] = f"{WEBHOOK_BASE_URL}/nowpay-ipn"
     async with ClientSession() as session:
         async with session.post(
-            "https://api.nowpayments.io/v1/invoice",
+            "https://api.nowpayments.io/v1/payment",
             json=payload,
             headers={"x-api-key": NOWPAY_API_KEY, "Content-Type": "application/json"}
         ) as resp:
             data = await resp.json()
-    if "id" not in data:
+    if "payment_id" not in data:
         raise Exception(f"NOWPayments error: {data}")
     with db() as conn:
         conn.execute(
             "INSERT INTO pending_crypto (payment_id,user_id,plan_key) VALUES (%s,%s,%s) "
             "ON CONFLICT (payment_id) DO UPDATE SET user_id=EXCLUDED.user_id, plan_key=EXCLUDED.plan_key",
-            (str(data["id"]), user_id, plan_key)
+            (str(data["payment_id"]), user_id, plan_key)
         )
     return data
 
@@ -486,19 +486,23 @@ async def cb_crypto_pay(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _, currency_key, plan_key = q.data.split("_", 2)
     crypto = CRYPTO_OPTIONS[currency_key]
     p = PLANS[plan_key]
-    await q.message.edit_text("⏳ Generating your payment link...")
+    await q.message.edit_text("⏳ Generating your payment address...")
     try:
-        invoice = await create_nowpay_invoice(q.from_user.id, plan_key, crypto["currency"])
-        pay_url = invoice.get("invoice_url") or invoice.get("pay_url", "")
+        payment  = await create_nowpay_payment(q.from_user.id, plan_key, crypto["currency"])
+        address  = payment.get("pay_address", "")
+        amount   = payment.get("pay_amount", "")
+        currency = payment.get("pay_currency", crypto["currency"]).upper()
         await q.message.edit_text(
             f"🪙 *Pay with {crypto['name']}*\n\n"
             f"Plan: *{p['name']}* — ${p['price']}\n\n"
-            f"Tap below to complete payment.\n"
-            f"Proxies will arrive here automatically once confirmed.\n\n"
-            f"⏱ Link expires in 30 minutes.",
+            f"Send exactly:\n"
+            f"`{amount} {currency}`\n\n"
+            f"To this address:\n"
+            f"`{address}`\n\n"
+            f"⏱ Address valid for 60 minutes.\n"
+            f"Proxies will be delivered here automatically once confirmed.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💸  Pay Now", url=pay_url)],
                 [InlineKeyboardButton("⬅️  Change currency", callback_data=f"crypto_{plan_key}")],
                 [InlineKeyboardButton("⬅️  Back",            callback_data="buy")],
             ])
@@ -506,7 +510,7 @@ async def cb_crypto_pay(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.error(f"NOWPayments error: {e}")
         await q.message.edit_text(
-            "❌ Could not generate payment link. Please try again or contact support.",
+            "❌ Could not generate payment address. Please try again or contact support.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🆘 Support", callback_data="support")
             ]])
@@ -840,7 +844,7 @@ async def nowpay_ipn(request: web.Request):
     if data.get("payment_status") != "finished":
         return web.Response(text="ok")
 
-    payment_id = str(data.get("invoice_id") or data.get("payment_id", ""))
+    payment_id = str(data.get("payment_id", ""))
 
     with db() as conn:
         row = conn.execute(
