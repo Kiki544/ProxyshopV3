@@ -32,9 +32,9 @@ CRYPTO_OPTIONS = {
 }
 
 PLANS = {
-    "starter": {"name": "Starter", "price": 5,  "count": 10,  "days": 30},
-    "pro":     {"name": "Pro",     "price": 15, "count": 50,  "days": 30},
-    "elite":   {"name": "Elite",   "price": 30, "count": 150, "days": 30},
+    "starter": {"name": "50 Proxies",  "price": 15, "count": 50,  "days": 30},
+    "pro":     {"name": "100 Proxies", "price": 25, "count": 100, "days": 30},
+    "elite":   {"name": "200 Proxies", "price": 45, "count": 200, "days": 30},
 }
 
 PROVIDERS = {
@@ -289,7 +289,7 @@ async def create_nowpay_payment(user_id: int, plan_key: str, pay_currency: str =
         "price_currency":    "usd",
         "pay_currency":      pay_currency,
         "order_id":          f"{user_id}_{plan_key}_{int(datetime.now().timestamp())}",
-        "order_description": f"{plan['name']} Proxy Plan — {plan['count']} proxies",
+        "order_description": f"{plan['name']} — {plan['count']} proxies",
     }
     if WEBHOOK_BASE_URL:
         payload["ipn_callback_url"] = f"{WEBHOOK_BASE_URL}/nowpay-ipn"
@@ -486,12 +486,14 @@ async def cb_crypto_pay(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _, currency_key, plan_key = q.data.split("_", 2)
     crypto = CRYPTO_OPTIONS[currency_key]
     p = PLANS[plan_key]
-    await q.message.edit_text("⏳ Generating your payment address...")
+    await q.message.edit_text("⏳ Generating your payment details...")
     try:
-        payment  = await create_nowpay_payment(q.from_user.id, plan_key, crypto["currency"])
-        address  = payment.get("pay_address", "")
-        amount   = payment.get("pay_amount", "")
-        currency = payment.get("pay_currency", crypto["currency"]).upper()
+        payment    = await create_nowpay_payment(q.from_user.id, plan_key, crypto["currency"])
+        address    = payment.get("pay_address", "")
+        amount     = payment.get("pay_amount", "")
+        currency   = payment.get("pay_currency", crypto["currency"]).upper()
+        payment_id = payment.get("payment_id", "")
+        pay_url    = f"https://nowpayments.io/payment/?id={payment_id}"
         await q.message.edit_text(
             f"🪙 *Pay with {crypto['name']}*\n\n"
             f"Plan: *{p['name']}* — ${p['price']}\n\n"
@@ -503,6 +505,7 @@ async def cb_crypto_pay(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"Proxies will be delivered here automatically once confirmed.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💸  Open Payment Page", url=pay_url)],
                 [InlineKeyboardButton("⬅️  Change currency", callback_data=f"crypto_{plan_key}")],
                 [InlineKeyboardButton("⬅️  Back",            callback_data="buy")],
             ])
@@ -510,7 +513,7 @@ async def cb_crypto_pay(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.error(f"NOWPayments error: {e}")
         await q.message.edit_text(
-            "❌ Could not generate payment address. Please try again or contact support.",
+            "❌ Could not generate payment details. Please try again or contact support.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🆘 Support", callback_data="support")
             ]])
